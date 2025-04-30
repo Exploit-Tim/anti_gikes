@@ -1,3 +1,4 @@
+import os
 import sys
 import asyncio
 import subprocess
@@ -10,9 +11,6 @@ from pyrogram.errors import FloodWait
 from antigcast.config import *
 from antigcast.helpers.tools import *
 from antigcast.helpers.database import *
-from OWNER_ID import OWNER_ID
-
-OWNER_ID ="6144669103"
 
 async def send_msg(chat_id, message: Message):
     try:
@@ -25,26 +23,32 @@ async def send_msg(chat_id, message: Message):
         await asyncio.sleep(int(e.value))
         return send_msg(chat_id, message)
 
-@Bot.on_message(filters.command("update") & filters.user(OWNER_ID))
-async def updatemessag(app : Bot, message : Message):
-    xx = await message.reply(f"**Processing Update...**")
-    await asyncio.sleep(3)
+@Bot.on_message(filters.command("update") & ~filters.private & filters.user(CREATOR))
+async def handle_update(app: Bot, message: Message):
     try:
-        out = subprocess.check_output(["git", "pull"]).decode("UTF-8")
+        out = subprocess.check_output(["git", "pull"], stderr=subprocess.STDOUT).decode("UTF-8")
         if "Already up to date." in str(out):
-            xnxx =  await xx.edit("**Bot sudah versi Terbaru")
-            await asyncio.sleep(3)
-            await xnxx.delete()
-            return await message.delete()
-        await xx.edit(f"```{out}```")
+            return await message.reply(out, quote=True)
+        elif len(out) > 4096:
+            await send_large_output(message, out)
+        else:
+            await message.reply(f"```{out}```", quote=True)
+        os.execl(sys.executable, sys.executable, "-m", "antigcast")
+    except subprocess.CalledProcessError as e:
+        await message.reply(f"Git pull failed with error code {e.returncode}:\n{e.output.decode('UTF-8')}", quote=True)
     except Exception as e:
-        return await xx.edit(str(e))
-    await xx.delete()
-    await message.delete()
-    await restart()
+        await message.reply(f"An error occurred while trying to update:\n{str(e)}", quote=True)
 
-@Bot.on_message(filters.command("gcast") & filters.user(OWNER_ID))
-async def gcast_hndl(app : Bot, message : Message):
+@Bot.on_message(filters.command("restart") & filters.user(CREATOR))
+async def handle_restart(app: Bot, message: Message):
+    try:
+        await message.reply("✅ System berhasil direstart", quote=True)
+        os.execl(sys.executable, sys.executable, "-m", "antigcast")
+    except Exception as e:
+        await message.reply(f"An error occurred while trying to restart:\n{str(e)}", quote=True)
+
+@Bot.on_message(filters.command("gcast") & filters.user(CREATOR))
+async def gcast_hndl(app: Bot, message: Message):
     groups = await get_actived_chats()
     msg = get_arg(message)
     if message.reply_to_message:
@@ -66,6 +70,6 @@ async def gcast_hndl(app : Bot, message : Message):
         try:
             await send_msg(group, message=msg)
             done += 1
-        except:
+        except Exception:
             failed += 1
     await out.edit(f"**Berhasil Mengirim Pesan Ke {done} Group.**\n**Gagal Mengirim Pesan Ke {failed} Group.**")
